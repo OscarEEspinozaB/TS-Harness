@@ -1,0 +1,4 @@
+// rule: HIDDEN kind: gap
+export function first(values: readonly number[]): number {
+  return values[0]!;
+}

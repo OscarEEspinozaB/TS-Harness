@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedDeclarations": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "build/surface",
+    "allowImportingTsExtensions": true,
+    "target": "es2024",
+    "module": "nodenext",
+    "lib": ["es2024", "esnext.disposable"],
+    "types": ["node"]
+  },
+  "include": ["run.ts", "src/**/*.ts"]
+}
