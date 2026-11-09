@@ -1,0 +1,1 @@
+{ "projects": ["tsconfig.json"], "entryPoints": ["tools/*.ts"], "tests": [], "layers": { "src": ["src"], "tools": ["src", "tools"] } }

@@ -12,5 +12,9 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2"
+  },
+  "scripts": {
+    "check": "tsc -p . && node run.ts > build/last-run.md && node audit.ts .",
+    "prepare": "git config core.hooksPath .githooks"
   }
 }

@@ -1,6 +1,6 @@
 # Diseño de TS-Harness
 
-7 de noviembre de 2026. Las reglas de este documento son **propuestas**: ninguna existe todavía, porque ninguna tiene un programa que la haga cumplir. Lo marcado como **decidido** lo confirmó el autor o lo delegó con un criterio explícito.
+7 de noviembre de 2026; reglas implementadas el 9 de noviembre de 2026. Las secciones 1 a 10 son el diseño con el que se empezó: allí las reglas aparecen como **propuestas**. La sección 11 dice cuáles existen ya como programa (`audit.ts`), qué comprueba cada una, qué no comprueba y qué decisiones se tomaron al implementarlas. Lo marcado como **decidido** lo confirmó el autor o lo delegó con un criterio explícito.
 
 ## 1. Para qué
 
@@ -127,3 +127,115 @@ Añadidas por el mismo criterio: `ERROR`, `SURFACE`, `LAYER`, `SIZE` y el mapa d
 4. **Hacen falta celdas de varios archivos** para lo que no cabe en uno: `export *`, los ciclos de `LAYER`, reasignar un binding importado y `verbatimModuleSyntax`. El ejecutor de hoy solo mide celdas de un archivo.
 
 **El ejecutor** ([run.ts](../run.ts) y [src/](../src/)) está escrito según las reglas propuestas: solo `main` toca el exterior, los fallos son valores, no hay clases y los parámetros que no se modifican son `Readonly`. Pasa `tsc` con la configuración raíz ([tsconfig.json](../tsconfig.json)). Que cumpla las reglas propias no está comprobado, porque todavía no existen.
+
+## 11. Reglas implementadas
+
+9 de noviembre de 2026, TypeScript 6.0.3 y Node v24.16.0.
+
+El autor pidió reglas claras que **ayuden a construir y faciliten el desarrollo**, con excepciones documentadas que conserven el contexto que una optimización del código podría ocultar. Delegó la evaluación de las reglas propuestas y de las que faltaban con ese criterio. Las decisiones que siguen se tomaron por esa delegación.
+
+**Qué existe:**
+
+- [audit.ts](../audit.ts) audita un proyecto que tenga un `harness.json`. Termina con 0 si no hay hallazgos, 1 si los hay y 2 si no pudo auditar.
+- [run.ts](../run.ts) mide las celdas de un archivo con `tsc` y con las reglas, y los proyectos de [fixtures/](../fixtures/) para lo que necesita varios archivos.
+- El arnés se audita a sí mismo con su propio [harness.json](../harness.json) y no tiene hallazgos.
+
+### Configuración de un proyecto
+
+`harness.json` en la raíz:
+
+```json
+{
+  "projects": ["tsconfig.json", "tools/tsconfig.json"],
+  "entryPoints": ["tools/*.ts"],
+  "tests": ["tests/**/*.ts"],
+  "layers": { "engine": ["engine"], "app": ["engine", "app"] }
+}
+```
+
+- **`projects`:** los `tsconfig.json` que forman el proyecto. Cada archivo se audita una vez, con el primer proyecto que lo incluye.
+- **`entryPoints`:** los archivos que pueden tocar el exterior. Cada uno declara una función `main`. Dentro de ellos no rigen `WORLD`, `ERROR` ni `IMPORT`.
+- **`tests`:** las pruebas, con la misma exención y sin exigir `main`, porque su marco de pruebas ejecuta código al cargarlas.
+- **`layers`:** cada carpeta y las carpetas de las que puede importar. Una carpeta que no aparece no tiene restricción.
+
+**Decidido:** la exención alcanza al archivo entero del punto de entrada, no solo a `main`. Partir un punto de entrada en `main` y funciones auxiliares que reciben capacidades es lo idiomático, pero exigir que todo acceso esté dentro de `main` empujaría código auxiliar hacia dentro de `main` sin contener más contexto: el archivo ya está declarado como frontera.
+
+### Qué comprueba cada regla
+
+| Regla | Comprueba | No comprueba (límite declarado) |
+| --- | --- | --- |
+| `STATE` | Exportar un `let` o un `var`. Exportar una `const` de tipo mutable: un arreglo o una tupla no `readonly`, un contenedor mutable (`Map`, `Set`, arreglos tipados), o un objeto con alguna propiedad o firma de índice no `readonly` | La mutabilidad a más de un nivel de profundidad. El estado privado de un módulo, que la celda `state_private_module_let` permite |
+| `WORLD` | Fuera de puntos de entrada y pruebas: los globales del exterior (`Date`, `performance`, `crypto`, `process`, `console`, `fetch`, `globalThis`, `window`, `document`, `navigator`, `location`, `localStorage`, temporizadores, `requestAnimationFrame`, `EventSource`, `WebSocket` y otros), `Math.random` y los módulos de Node con efectos. Un nombre solo cuenta si resuelve a una declaración de biblioteca: un `location` local no es el exterior. Además, un punto de entrada sin `main` | Lo que hace una dependencia por dentro. Los módulos de Node considerados puros (`path`, `url`, `util`, `zlib`, `buffer`, `string_decoder`, `querystring`) se permiten |
+| `CONTEXT` | Un parámetro con tipo escrito y mutable que la función nunca escribe: debe ser `readonly`. Cuentan como escritura la asignación, el incremento o `delete` a través de él, llamar a un método que no está en la lista de lectura, y dejarlo escapar (como argumento, valor de retorno, inicializador o elemento de un literal) | `Readonly<T>` es superficial. Los métodos de una clase de biblioteca pueden cambiar el objeto aunque sus propiedades sean `readonly`. Al dejar escapar un parámetro se lo da por escrito, así que la regla solo marca lo que claramente no se toca |
+| `ERROR` | `throw` y `Promise.reject` fuera de puntos de entrada y pruebas | Lo que lanzan por dentro el lenguaje y las bibliotecas (`JSON.parse`) |
+| `CLASS` | Declaraciones y expresiones `class` en el código propio | Usar clases de bibliotecas (`Map`, `Error`) se permite |
+| `SURFACE` | `export default`, `export *` y `export * as`. Con `isolatedDeclarations`, `tsc` ya exige tipos explícitos en lo exportado | — |
+| `LAYER` | Ciclos de importación entre los archivos auditados, y las importaciones que cruzan las capas declaradas. Las importaciones de solo tipos cuentan: también son contexto que hay que leer | Importaciones de paquetes externos |
+| `NAME` | Un nombre que oculta otro de un ámbito que lo contiene, y un parámetro con el nombre de su función. Los ámbitos hermanos pueden repetir nombres | Nombres de otros módulos y globales |
+| `LAMBDA` | Una función flecha o expresión de función que asigna, suma o incrementa una variable que capturó | Cambios a un objeto capturado mediante sus propiedades o métodos (la celda `lambda_mutates_capture_by_method` sigue siendo un `gap`) |
+| `IMPORT` | Fuera de puntos de entrada y pruebas, una sentencia del nivel superior que no es declaración (se ejecuta al importar). En cualquier archivo, `import()` con ruta no literal, `require`, `eval`, `Function` y `new Function` | — |
+| `RELEASE` | Un valor `Disposable` o `AsyncDisposable` declarado sin `using` o `await using` | Recursos de bibliotecas que no implementan `Disposable` |
+| `SIZE` | Más de 7 parámetros | Límites de líneas, que se fijan después de medir proyectos reales |
+| `HIDDEN` | `any` explícito, `as` (salvo `as const`), `<T>x` y la aserción no nula `!` | `any` dentro de los tipos de una dependencia |
+| `BYPASS` | `@ts-ignore`, `@ts-expect-error` y `@ts-nocheck` | Banderas de `tsc` relajadas desde fuera del código |
+| `HEADER` (nueva) | Que el módulo empiece con un comentario que diga para qué sirve. No cuentan las directivas `// rule:`, `// reason:` ni `// harness-allow` | La calidad de lo que el comentario dice |
+| `ALLOW` (nueva) | Las excepciones mal escritas (regla desconocida o motivo de menos de 12 caracteres) y las que no silencian nada | Que el motivo sea verdadero |
+| `TSC` | Los diagnósticos de `tsc` con la configuración del proyecto, para que la auditoría sirva sola | — |
+
+### Decisiones tomadas el 9 de noviembre de 2026, por delegación
+
+1. **`IMPORT` se ajusta.** Una `const` calculada al cargar el módulo se permite, aunque llame a una función. Se rechazan las sentencias sueltas del nivel superior.
+   - Una tabla calculada (`new Map([...])`, una conversión de unidades) no es un efecto, y `WORLD` ya impide que toque el exterior.
+   - Obligar a que todo valor exportado sea un literal empujaría las tablas a funciones que se llaman una y otra vez, sin contener más contexto.
+   - La celda `import_top_level_call` pasa de `gap` a `control`. Lo que sigue prohibido es lo que de verdad ejecuta algo al importar: una sentencia como `register()` o `values.push(1)`.
+2. **`HEADER` es nueva.** Lo primero que lee un modelo al abrir un archivo es su comentario inicial. Si falta, tiene que leer el código entero para saber para qué sirve.
+3. **Excepciones documentadas (`ALLOW`), nueva.**
+   - Se escriben `// harness-allow REGLA: motivo`, o varias reglas separadas por comas, sobre la línea afectada o al final de ella.
+   - Silencian solo esa línea y esas reglas. El motivo es obligatorio: es el contexto que la excepción conserva.
+   - Cada excepción aparece en el informe de la auditoría con su motivo.
+   - Una excepción que ya no silencia nada es un hallazgo, para que no se acumulen sin leer.
+   - Solo cuentan los comentarios verdaderos: las mismas palabras dentro de un texto o de otro comentario no son una excepción.
+   - `TSC` y `ALLOW` no se pueden silenciar. `BYPASS` sigue prohibiendo apagar `tsc`.
+   - Sigue siendo **un solo perfil**: no hay modo relajado, solo excepciones de una línea, con nombre y motivo.
+4. **`CONTEXT` es conservadora.** Dar por escrito un parámetro que escapa evita marcar como error lo que no se puede saber sin seguir la llamada. La regla atrapa los casos claros: un arreglo que solo se recorre, un objeto que solo se lee.
+5. **`WORLD` y `ERROR` eximen también a las pruebas,** declaradas aparte de los puntos de entrada, porque `node:test` ejecuta código al cargar el archivo y lee datos de prueba.
+
+### Medición
+
+| | Resultado |
+|---|---|
+| Celdas de un archivo | 69: 44 detenidas y 0 veredictos erróneos. Quedan 2 `gap`, que son límites declarados: `Readonly<T>` superficial y la mutación de una captura mediante un método |
+| Proyectos de [fixtures/](../fixtures/) | `clean` sin hallazgos; `layers`, un ciclo y un cruce de capas; `surface`, `export *` y `export * as` |
+| Autoauditoría | 11 archivos, 0 hallazgos, 0 excepciones |
+
+**Comprobado con defectos.** Hacen fallar alguna celda o proyecto de prueba:
+
+- apagar `LAMBDA`;
+- declarar inmutable todo tipo (fallan `STATE` y `CONTEXT`);
+- quitar la detección de ciclos;
+- aceptar cualquier excepción;
+- no contar las llamadas a métodos como escritura.
+
+**No lo detecta:** que `ALLOW` pueda silenciarse a sí misma. El lector de excepciones ya rechaza `ALLOW` como regla, así que esa segunda protección no tiene efecto visible.
+
+**Fallos encontrados al implementar,** corregidos cada uno junto con una celda que lo vigila:
+
+- `RELEASE` tomaba toda `const` por `using`, porque en TypeScript `AwaitUsing` es `Const | Using` (celda `release_without_using`).
+- `globalThis` no se reconocía como externo, porque su símbolo no tiene declaraciones (celda `world_global_this_date`).
+- `Readonly<T>` guarda su marca en los enlaces internos del símbolo, no en el símbolo mismo, así que un objeto `Readonly` se veía mutable (celda `state_exported_readonly_object`).
+- Un `// harness-allow` dentro de un texto contaba como excepción (celda `allow_in_string`).
+
+### Cómo se usa en un proyecto
+
+```sh
+node ../TS-Harness/audit.ts .    # desde la raíz del proyecto, con su harness.json
+```
+
+Como validación antes de cada commit, un gancho `pre-commit` del proyecto puede ejecutar esa orden y abortar si termina con 1 o 2. Este repositorio hace lo mismo consigo mismo: `npm run check` corre `tsc`, las celdas, los proyectos de prueba y la autoauditoría.
+
+### Qué falta
+
+- **La hipótesis de la sección 1 sigue sin medir** (sección 9.3).
+- **El mapa de superficie** (sección 4).
+- **`CONTEXT` profundo** y la mutación a través de métodos en `LAMBDA`, si una medición muestra que vale su costo.
+- **Límites de líneas en `SIZE`,** después de medir proyectos reales.

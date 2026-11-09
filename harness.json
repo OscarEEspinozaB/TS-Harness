@@ -1,0 +1,6 @@
+{
+  "projects": ["tsconfig.json"],
+  "entryPoints": ["run.ts", "audit.ts"],
+  "tests": [],
+  "layers": { "src": ["src"] }
+}

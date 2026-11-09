@@ -18,5 +18,5 @@
     "lib": ["es2024", "esnext.disposable"],
     "types": ["node"]
   },
-  "include": ["run.ts", "src/**/*.ts"]
+  "include": ["run.ts", "audit.ts", "src/**/*.ts"]
 }

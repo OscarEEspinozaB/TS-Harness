@@ -12,18 +12,22 @@ It is the third harness after `../C-Harness` and `../Rust-Harness`. Its rules de
 
 ## Commands
 
-Requires Node 24+ (runs TypeScript directly, no build). `npm install` installs `typescript` 6.0.3 (pinned; TS 7's API is still `unstable/*`) and `@types/node`.
+Requires Node 24+ (runs TypeScript directly, no build). `npm install` installs `typescript` 6.0.3 (pinned; TS 7's API is still `unstable/*`) and `@types/node`, and points git at `.githooks/` (pre-commit runs `npm run check`).
 
 ```sh
-node run.ts       # measures every cell in cells/; exit 0 all verdicts right, 1 a wrong verdict, 2 could not measure
-npx tsc -p .      # type-checks the harness itself (run.ts, src/) with the root tsconfig.json
+npm run check            # tsc on the harness, every cell and fixture, then the self-audit; the pre-commit hook
+node run.ts              # measures cells/ and fixtures/; exit 0 all verdicts right, 1 a wrong verdict, 2 could not measure
+node audit.ts <project>  # audits a project with a harness.json; exit 0 no findings, 1 findings, 2 could not audit
+npx tsc -p .             # type-checks the harness itself (run.ts, audit.ts, src/)
 ```
 
-To record a measurement, save `node run.ts` output to a new dated file in `results/`; past measurements are never rewritten. Today the only stage is tsc with `cells/tsconfig.json`; the runner only measures single-file cells. `tsc` skips `isolatedDeclarations` errors under `noEmit`, so both configs use `emitDeclarationOnly` into `build/` (ignored), and the runner calls `getDeclarationDiagnostics()` explicitly.
+To record a measurement, save `node run.ts` output to a new dated file in `results/`; past measurements are never rewritten.
 
-**Status:** first measurement done (tsc only, 52 cells, 14 stopped, 0 wrong verdicts; see `docs/DISENO.md` §10). No harness rule exists yet. The design is in [docs/DISENO.md](docs/DISENO.md): purpose (sourced from `zymbol-design/MODEL.md` §2.4), proposed rules, mechanism, decisions taken and measurements. Its first user is a private project; see `CLAUDE.local.md` if present.
+**Status:** 16 rules implemented on the compiler API (`src/rules.ts`, `src/layers.ts`, `src/allow.ts`), measured on 69 single-file cells and 3 multi-file fixtures with 0 wrong verdicts; the harness audits itself (`harness.json`) with 0 findings. What each rule checks, what it does not, and the decisions taken while implementing them (2026-11-09, delegated by the author with the criterion "rules that help building"): `docs/DISENO.md` §11. Its first user is a private project; see `CLAUDE.local.md` if present.
 
-Decided design points (DISENO.md §8): no `class` declarations in own code (readonly types plus module functions); no `throw` outside `main`, failures are values in the return type; `using` for every `Disposable`; outside access only in a declared entry point's `main`, which passes typed capabilities (`Clock`, `Random`, `Socket`) down as parameters; one profile, no relaxed mode.
+Layout: `audit.ts` and `run.ts` are the entry points; `src/project.ts` audits a set of programs (pure, the entry passes `ts.sys`); `src/rules.ts` holds the per-file rules; `src/layers.ts` LAYER; `src/allow.ts` the documented exceptions (`// harness-allow RULE: reason`, real comments only, unused ones are findings); `src/config.ts` reads `harness.json` (projects, entryPoints, tests, layers). A cell is judged by tsc plus its own rule's findings; a cell named `*_entry.ts` is an entry point. `fixtures/*/` are small projects with an `expected.json` of findings per rule.
+
+Decided design points (DISENO.md §8, §11): no `class` declarations in own code (readonly types plus module functions); no `throw` outside entry points and tests, failures are values in the return type; `using` for every `Disposable`; outside access only in declared entry points (whole files, each with a `main`) and tests; constants computed at load are allowed, loose top-level statements are not; one profile, no relaxed mode, only line-level exceptions with a reason.
 
 ## Faithful to TypeScript (decided by the author)
 
@@ -40,7 +44,7 @@ Each premise supplies a purpose; the rule enforces it with TypeScript's own mech
 - Domain rules for a specific project (for example, non-deterministic trig functions in a simulator) do not belong here.
 - The author decides what becomes a rule. A decision is changed deliberately and on its own, never as a side effect of implementing something.
 
-## Intended mechanism
+## Mechanism
 
 - Verifier on the TypeScript compiler API (`typescript` package), its only dependency, so rules can use type information.
 - First stage: `tsc` in strict mode plus the extra flags listed in `docs/DISENO.md` §4, including `erasableSyntaxOnly`, `verbatimModuleSyntax` and `isolatedDeclarations`.

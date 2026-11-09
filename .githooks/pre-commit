@@ -1,0 +1,3 @@
+#!/bin/sh
+# Validation before every commit: tsc, every cell and fixture, and the harness's audit of itself.
+npm run --silent check || { echo "pre-commit: npm run check failed; the commit was not made" >&2; exit 1; }

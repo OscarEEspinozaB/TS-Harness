@@ -1,6 +1,6 @@
 # TS-Harness
 
-**¿Se puede hacer que una función de TypeScript dependa solo de lo que dice su firma?** Este proyecto busca que, para entender una función, baste con leer su firma y su cuerpo, y lo comprobará con un programa.
+**¿Se puede hacer que una función de TypeScript dependa solo de lo que dice su firma?** Este proyecto busca que, para entender una función, baste con leer su firma y su cuerpo, y lo comprueba con un programa.
 
 **El arnés es para la IA, no para el lenguaje.** Con cientos de miles de líneas, un modelo nunca lee el proyecto entero. Todo lo que una función hace sin que su firma lo diga queda fuera de su vista: estado compartido, efectos externos, excepciones, herencia. El arnés rechaza esas formas para que lo que el modelo no lee no pueda sorprenderlo. Que esto ayude de verdad a una IA es una hipótesis que todavía hay que medir.
 
@@ -8,16 +8,35 @@ Es el tercer arnés de la serie, después de [C-Harness](https://github.com/Osca
 
 ## Estado actual
 
-**Todavía no existe ninguna regla propia.** Una regla no existe hasta que un programa rechaza el código que la incumple. Existen el diseño, en [docs/DISENO.md](docs/DISENO.md), y un ejecutor que mide las celdas. La primera medición, solo con `tsc` en modo estricto, detuvo 14 de 52 celdas, con todos los veredictos correctos: ver [results/](results/).
+**Las reglas ya son programas.** `audit.ts` audita un proyecto TypeScript con 16 reglas, entre ellas estado exportado, acceso al exterior fuera de los puntos de entrada, parámetros mutables sin escribir, `throw`, clases, capas e importaciones, nombres ocultos y aserciones de tipo. Las excepciones se documentan una a una, con su motivo. Qué comprueba cada regla, y qué no, está en [docs/DISENO.md](docs/DISENO.md), sección 11.
+
+La medición del 9 de noviembre de 2026: 69 celdas con 0 veredictos erróneos, 3 proyectos de prueba de varios archivos, y el arnés pasa su propia auditoría sin hallazgos. Ver [results/](results/).
+
+## Usarlo en un proyecto
+
+Pon un `harness.json` en la raíz del proyecto (formato en [docs/DISENO.md](docs/DISENO.md), sección 11) y ejecuta:
+
+```sh
+node ../TS-Harness/audit.ts .   # 0 sin hallazgos, 1 con hallazgos, 2 no pudo auditar
+```
+
+Para validar antes de cada commit, llámalo desde un gancho `pre-commit`.
+
+Una excepción se escribe sobre la línea que afecta, con la regla y el motivo:
+
+```ts
+// harness-allow LAMBDA: the generator's state lives in its closure; returning it would copy it per draw
+```
 
 ## Reproducir la medición
 
 Necesitas Node 24 o posterior, que ejecuta TypeScript sin compilar:
 
 ```sh
-npm install
-node run.ts       # mide las celdas; termina con error si algún veredicto es incorrecto
-npx tsc -p .      # comprueba con tsc el propio ejecutor
+npm install       # también activa el gancho pre-commit de este repositorio
+npm run check     # tsc, las celdas, los proyectos de prueba y la autoauditoría
+node run.ts       # solo las celdas y los proyectos de prueba, con la tabla completa
+node audit.ts .   # solo la autoauditoría
 ```
 
 Su primer usuario será un simulador, privado por ahora, cuya alfa se escribirá entera bajo este arnés.

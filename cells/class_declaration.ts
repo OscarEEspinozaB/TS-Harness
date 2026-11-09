@@ -1,4 +1,5 @@
-// rule: CLASS kind: gap
+// rule: CLASS kind: violation
+// reason: class declaration
 export class Counter {
   private count: number = 0;
 

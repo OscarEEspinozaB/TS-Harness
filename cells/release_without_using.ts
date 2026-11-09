@@ -1,4 +1,5 @@
-// rule: RELEASE kind: gap
+// rule: RELEASE kind: violation
+// reason: held without using
 function open(): Disposable {
   return { [Symbol.dispose](): void {} };
 }
